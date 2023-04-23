@@ -1,0 +1,48 @@
+{
+  "c": true,
+  "alipays": "https://jsd.cdn.zzko.cn/gh/xiaojing110/3323@main/%E8%A7%89%E5%BE%97%E5%A5%BD%E7%94%A8%E5%8F%AF%E4%BB%A5%E6%8D%90%E8%B5%A0.jpg",
+  "qqGroupKey": "",
+  "qqGroupTitle": "咸鱼宝宝",
+  "minAdapt": "7.8.70",
+  "maxAdapt": "7.10.20",
+  "dialogTitle": "不再对老版本支持-具体查看支持版本",
+  "dialogIntro": "该版本由thatdream修改，请勿滥用、滥改、肆意传播",
+  "dialogShow": false,
+  "dialogExit": false,
+  "dialogTime": 0,
+  "updateInfo": {
+    "u": true,
+    "f": false,
+    "vn": "1.4.2",
+    "vc": 41,
+    "du": "https://github.com/xiaojing110/3323/",
+    "dt": "by thatdream",
+    "title": "咸鱼宝宝",
+    "intro": "\n替换 jsDelivr 源",
+    "time": 3
+  },
+  "beta": {
+    "c": true,
+    "alipays": "https://jsd.cdn.zzko.cn/gh/xiaojing110/3323@main/%E8%A7%89%E5%BE%97%E5%A5%BD%E7%94%A8%E5%8F%AF%E4%BB%A5%E6%8D%90%E8%B5%A0.jpg",
+    "qqGroupKey": "",
+    "qqGroupTitle": "咸鱼宝宝",
+    "minAdapt": "7.8.70",
+    "maxAdapt": "7.10.20",
+    "dialogTitle": "提示标题",
+    "dialogIntro": "提示内容",
+    "dialogShow": false,
+    "dialogExit": false,
+    "dialogTime": 5,
+    "updateInfo": {
+      "u": true,
+      "f": false,
+      "vn": "1.4.2",
+      "vc": 41,
+      "du": "https://github.com/xiaojing110/3323/",
+      "dt": "by thatdream",
+      "title": "咸鱼宝宝",
+      "intro": "\n替换 jsDelivr 源",
+      "time": 3
+    }
+  }
+}
