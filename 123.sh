@@ -23,6 +23,7 @@ CONFIG_FILE="$BASE_DIR/config.json"
 SERVICE_NAME="v2ray"
 EXEC=""
 CORE="xray-core"
+TRANSPORT="ws" # 默认传输协议为 ws
 
 # ----------------- 工具函数 -----------------
 random_uuid() {
@@ -142,8 +143,8 @@ install_core() {
     fi
 }
 
-# ----------------- sing-box 配置 -----------------
-create_singbox_config() {
+# ----------------- 配置生成 -----------------
+create_config() {
     UUID=$(random_uuid)
 
     # 输入端口
@@ -158,17 +159,24 @@ create_singbox_config() {
         NODENAME="MyNode"
     fi
 
-    read -rp "请输入伪装域名 (回车跳过): " DOMAIN
+    # 选择传输协议
+    echo -e "${BLUE}${TOP_LEFT}${HORIZONTAL}${HORIZONTAL} 选择传输协议 ${HORIZONTAL}${HORIZONTAL}${TOP_RIGHT}${NC}"
+    echo -e "${BLUE}${VERTICAL} [1] ws (默认)  [2] tcp: ${NC}"
+    read -rp "${BLUE}${VERTICAL} 请输入选项 (回车默认 ws): ${NC}" TRANSPORT_CHOICE
+    case "$TRANSPORT_CHOICE" in
+        2) TRANSPORT="tcp" ;;
+        *) TRANSPORT="ws" ;;
+    esac
 
+    # 输入伪装域名
+    read -rp "请输入伪装域名 (回车使用默认 tjtn.pan.wo.cn): " DOMAIN
     if [ -z "$DOMAIN" ]; then
-        WS_SETTINGS='path: "/"'
-        HOST_SETTING='server_name: ""'
-    else
-        WS_SETTINGS='path: "/"'
-        HOST_SETTING='server_name: "'"$DOMAIN"'", headers: {Host: "'"$DOMAIN"'" }'
+        DOMAIN="tjtn.pan.wo.cn"
     fi
 
-    cat > "$CONFIG_FILE" <<EOF
+    if [ "$CORE" == "sing-box" ]; then
+        if [ "$TRANSPORT" == "ws" ]; then
+            cat > "$CONFIG_FILE" <<EOF
 {
   "log": {
     "level": "warn"
@@ -187,7 +195,12 @@ create_singbox_config() {
       ],
       "transport": {
         "type": "ws",
-        $WS_SETTINGS
+        "ws_settings": {
+          "path": "/",
+          "headers": {
+            "Host": "$DOMAIN"
+          }
+        }
       },
       "sniff": true
     }
@@ -208,44 +221,56 @@ create_singbox_config() {
   }
 }
 EOF
-
-    SERVER_IP=$(curl -s ipv4.icanhazip.com)
-    if [ -z "$SERVER_IP" ]; then
-        echo -e "${RED}❌ 无法获取服务器 IP${NC}"
-        exit 1
-    fi
-
-    show_node_info
-}
-
-# ----------------- xray-core 配置 -----------------
-create_config() {
-    if [ "$CORE" == "sing-box" ]; then
-        create_singbox_config
-    else
-        UUID=$(random_uuid)
-
-        # 输入端口
-        read -rp "请输入端口 (回车随机生成): " PORT
-        if [ -z "$PORT" ]; then
-            PORT=$(random_port)
-        fi
-
-        # 输入别名
-        read -rp "请输入节点别名 (回车默认为 MyNode): " NODENAME
-        if [ -z "$NODENAME" ]; then
-            NODENAME="MyNode"
-        fi
-
-        read -rp "请输入伪装域名 (回车跳过): " DOMAIN
-
-        if [ -z "$DOMAIN" ]; then
-            WS_SETTINGS='"wsSettings": {"path": "/"}'
         else
-            WS_SETTINGS='"wsSettings": {"path": "/", "headers": {"Host": "'"$DOMAIN"'"}}'
+            cat > "$CONFIG_FILE" <<EOF
+{
+  "log": {
+    "level": "warn"
+  },
+  "inbounds": [
+    {
+      "type": "vmess",
+      "tag": "vmess-in",
+      "listen": "::",
+      "listen_port": $PORT,
+      "users": [
+        {
+          "uuid": "$UUID",
+          "alterId": 0
+        }
+      ],
+      "transport": {
+        "type": "tcp",
+        "tcp_settings": {
+          "header": {
+            "type": "http",
+            "host": "$DOMAIN"
+          }
+        }
+      },
+      "sniff": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "inbound": ["vmess-in"],
+        "outbound": "direct"
+      }
+    ]
+  }
+}
+EOF
         fi
-
-        cat > "$CONFIG_FILE" <<EOF
+    else
+        if [ "$TRANSPORT" == "ws" ]; then
+            cat > "$CONFIG_FILE" <<EOF
 {
   "log": {
     "access": "",
@@ -266,7 +291,12 @@ create_config() {
       },
       "streamSettings": {
         "network": "ws",
-        $WS_SETTINGS
+        "wsSettings": {
+          "path": "/",
+          "headers": {
+            "Host": "$DOMAIN"
+          }
+        }
       }
     }
   ],
@@ -278,15 +308,55 @@ create_config() {
   ]
 }
 EOF
-
-        SERVER_IP=$(curl -s ipv4.icanhazip.com)
-        if [ -z "$SERVER_IP" ]; then
-            echo -e "${RED}❌ 无法获取服务器 IP${NC}"
-            exit 1
+        else
+            cat > "$CONFIG_FILE" <<EOF
+{
+  "log": {
+    "access": "",
+    "error": "",
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "port": $PORT,
+      "protocol": "vmess",
+      "settings": {
+        "clients": [
+          {
+            "id": "$UUID",
+            "alterId": 0
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "tcpSettings": {
+          "header": {
+            "type": "http",
+            "host": "$DOMAIN"
+          }
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "settings": {}
+    }
+  ]
+}
+EOF
         fi
-
-        show_node_info
     fi
+
+    SERVER_IP=$(curl -s ipv4.icanhazip.com)
+    if [ -z "$SERVER_IP" ]; then
+        echo -e "${RED}❌ 无法获取服务器 IP${NC}"
+        exit 1
+    fi
+
+    show_node_info
 }
 
 # ----------------- 显示节点信息 -----------------
@@ -295,11 +365,13 @@ show_node_info() {
         if [ "$CORE" == "sing-box" ]; then
             UUID=$(grep -Po '"uuid": "\K[^"]+' "$CONFIG_FILE")
             PORT=$(grep -Po '"listen_port": \K\d+' "$CONFIG_FILE")
-            DOMAIN=$(grep -Po '"server_name": "\K[^"]+' "$CONFIG_FILE" || echo "")
+            DOMAIN=$(grep -Po '"Host": "\K[^"]+' "$CONFIG_FILE" || grep -Po '"host": "\K[^"]+' "$CONFIG_FILE" || echo "tjtn.pan.wo.cn")
+            TRANSPORT=$(grep -Po '"type": "\K[^"]+' "$CONFIG_FILE" | head -1)
         else
             UUID=$(grep -Po '"id": "\K[^"]+' "$CONFIG_FILE")
             PORT=$(grep -Po '"port": \K\d+' "$CONFIG_FILE")
-            DOMAIN=$(grep -Po '"Host": "\K[^"]+' "$CONFIG_FILE" || echo "")
+            DOMAIN=$(grep -Po '"Host": "\K[^"]+' "$CONFIG_FILE" || grep -Po '"host": "\K[^"]+' "$CONFIG_FILE" || echo "tjtn.pan.wo.cn")
+            TRANSPORT=$(grep -Po '"network": "\K[^"]+' "$CONFIG_FILE" | head -1)
         fi
         SERVER_IP=$(curl -s ipv4.icanhazip.com)
 
@@ -309,10 +381,10 @@ show_node_info() {
         echo -e "${GREEN}${VERTICAL} 地址: $SERVER_IP${NC}"
         echo -e "${GREEN}${VERTICAL} 端口: $PORT${NC}"
         echo -e "${GREEN}${VERTICAL} UUID: $UUID${NC}"
-        echo -e "${GREEN}${VERTICAL} 传输: ws${NC}"
-        echo -e "${GREEN}${VERTICAL} 路径: /${NC}"
-        [ -n "$DOMAIN" ] && echo -e "${GREEN}${VERTICAL} 伪装域名: $DOMAIN${NC}"
-        echo -e "${GREEN}${BOTTOM_LEFT}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${BOTTOM_RIGHT}${NC}"
+        echo -e "${GREEN}${VERTICAL} 传输: $TRANSPORT${NC}"
+        [ "$TRANSPORT" == "tcp" ] && echo -e "${GREEN}${VERTICAL} 伪装类型: http${NC}"
+        echo -e "${GREEN}${VERTICAL} 伪装域名: $DOMAIN${NC}"
+        echo -e "${GREEN}${BOTTOM_LEFT}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${BOTTOM_RIGHT}${NC}"
 
         # 生成 vmess 链接
         VMESS_JSON=$(cat <<EOF
@@ -323,8 +395,8 @@ show_node_info() {
   "port": "$PORT",
   "id": "$UUID",
   "aid": "0",
-  "net": "ws",
-  "type": "none",
+  "net": "$TRANSPORT",
+  "type": "$([ "$TRANSPORT" == "tcp" ] && echo "http" || echo "none")",
   "host": "$DOMAIN",
   "path": "/",
   "tls": ""
@@ -335,7 +407,7 @@ EOF
 
         echo -e "\n${YELLOW}${TOP_LEFT}${HORIZONTAL}${HORIZONTAL} V2RayN/V2RayNG 导入链接 ${HORIZONTAL}${HORIZONTAL}${TOP_RIGHT}${NC}"
         echo -e "${YELLOW}${VERTICAL} $VMESS_LINK${NC}"
-        echo -e "${YELLOW}${BOTTOM_LEFT}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${BOTTOM_RIGHT}${NC}"
+        echo -e "${YELLOW}${BOTTOM_LEFT}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${BOTTOM_RIGHT}${NC}"
     else
         echo -e "${RED}❌ 未找到配置文件，请先安装节点${NC}"
     fi
@@ -434,9 +506,9 @@ main_menu() {
     esac
 
     while true; do
-        echo -e "${BLUE}${TOP_LEFT}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${TOP_RIGHT}${NC}"
+        echo -e "${BLUE}${TOP_LEFT}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${TOP_RIGHT}${NC}"
         echo -e "${BLUE}${VERTICAL}         节点管理脚本         ${VERTICAL}${NC}"
-        echo -e "${BLUE}${VERTICAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${VERTICAL}${NC}"
+        echo -e "${BLUE}${VERTICAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${VERTICAL}${NC}"
         echo -e "${BLUE}${VERTICAL} 1) 安装并生成节点         ${VERTICAL}${NC}"
         echo -e "${BLUE}${VERTICAL} 2) 启动服务               ${VERTICAL}${NC}"
         echo -e "${BLUE}${VERTICAL} 3) 停止服务               ${VERTICAL}${NC}"
@@ -445,7 +517,7 @@ main_menu() {
         echo -e "${BLUE}${VERTICAL} 6) 显示版本信息           ${VERTICAL}${NC}"
         echo -e "${BLUE}${VERTICAL} 7) 查看当前节点信息       ${VERTICAL}${NC}"
         echo -e "${BLUE}${VERTICAL} 0) 退出                   ${VERTICAL}${NC}"
-        echo -e "${BLUE}${BOTTOM_LEFT}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${BOTTOM_RIGHT}${NC}"
+        echo -e "${BLUE}${BOTTOM_LEFT}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${BOTTOM_RIGHT}${NC}"
         read -rp "${YELLOW}请输入选项: ${NC}" ACTION
 
         case "$ACTION" in
