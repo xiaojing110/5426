@@ -19,11 +19,13 @@ VERTICAL="│"
 
 # 全局变量
 BASE_DIR="/usr/local/v2ray"
+CONFIG_DIR="$BASE_DIR/configs"
 CONFIG_FILE="$BASE_DIR/config.json"
 SERVICE_NAME="v2ray"
 EXEC=""
 CORE="xray-core"
 TRANSPORT="ws" # 默认传输协议为 ws
+API_PORT=10085 # 默认 API 端口，用于流量统计
 
 # ----------------- 工具函数 -----------------
 random_uuid() {
@@ -154,7 +156,7 @@ create_config() {
     fi
 
     # 输入别名
-    read -rp "请输入节点别名 (回车默认为 MyNode): " NODENAME
+    read -rp "请输入节点别名 (回车默认为 Thatdream): " NODENAME
     if [ -z "$NODENAME" ]; then
         NODENAME="MyNode"
     fi
@@ -174,6 +176,10 @@ create_config() {
         DOMAIN="tjtn.pan.wo.cn"
     fi
 
+    # 创建配置目录
+    mkdir -p "$CONFIG_DIR"
+    CONFIG_FILE="$CONFIG_DIR/$NODENAME.json"
+
     if [ "$CORE" == "sing-box" ]; then
         if [ "$TRANSPORT" == "ws" ]; then
             cat > "$CONFIG_FILE" <<EOF
@@ -184,7 +190,7 @@ create_config() {
   "inbounds": [
     {
       "type": "vmess",
-      "tag": "vmess-in",
+      "tag": "vmess-in-$NODENAME",
       "listen": "::",
       "listen_port": $PORT,
       "users": [
@@ -214,7 +220,7 @@ create_config() {
   "route": {
     "rules": [
       {
-        "inbound": ["vmess-in"],
+        "inbound": ["vmess-in-$NODENAME"],
         "outbound": "direct"
       }
     ]
@@ -230,7 +236,7 @@ EOF
   "inbounds": [
     {
       "type": "vmess",
-      "tag": "vmess-in",
+      "tag": "vmess-in-$NODENAME",
       "listen": "::",
       "listen_port": $PORT,
       "users": [
@@ -260,7 +266,7 @@ EOF
   "route": {
     "rules": [
       {
-        "inbound": ["vmess-in"],
+        "inbound": ["vmess-in-$NODENAME"],
         "outbound": "direct"
       }
     ]
@@ -298,6 +304,16 @@ EOF
           }
         }
       }
+    },
+    {
+      "port": $API_PORT,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": $API_PORT,
+        "network": "tcp"
+      },
+      "tag": "api"
     }
   ],
   "outbounds": [
@@ -305,7 +321,26 @@ EOF
       "protocol": "freedom",
       "settings": {}
     }
-  ]
+  ],
+  "stats": {},
+  "api": {
+    "tag": "api",
+    "services": [
+      "StatsService"
+    ]
+  },
+  "policy": {
+    "levels": {
+      "0": {
+        "statsUserUplink": true,
+        "statsUserDownlink": true
+      }
+    },
+    "system": {
+      "statsInboundUplink": true,
+      "statsInboundDownlink": true
+    }
+  }
 }
 EOF
         else
@@ -337,6 +372,16 @@ EOF
           }
         }
       }
+    },
+    {
+      "port": $API_PORT,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": $API_PORT,
+        "network": "tcp"
+      },
+      "tag": "api"
     }
   ],
   "outbounds": [
@@ -344,7 +389,26 @@ EOF
       "protocol": "freedom",
       "settings": {}
     }
-  ]
+  ],
+  "stats": {},
+  "api": {
+    "tag": "api",
+    "services": [
+      "StatsService"
+    ]
+  },
+  "policy": {
+    "levels": {
+      "0": {
+        "statsUserUplink": true,
+        "statsUserDownlink": true
+      }
+    },
+    "system": {
+      "statsInboundUplink": true,
+      "statsInboundDownlink": true
+    }
+  }
 }
 EOF
         fi
@@ -356,26 +420,29 @@ EOF
         exit 1
     fi
 
-    show_node_info
+    show_node_info "$CONFIG_FILE" "$NODENAME"
 }
 
 # ----------------- 显示节点信息 -----------------
 show_node_info() {
-    if [ -f "$CONFIG_FILE" ]; then
+    local config_file=$1
+    local nodename=$2
+
+    if [ -f "$config_file" ]; then
         if [ "$CORE" == "sing-box" ]; then
-            UUID=$(grep -Po '"uuid": "\K[^"]+' "$CONFIG_FILE")
-            PORT=$(grep -Po '"listen_port": \K\d+' "$CONFIG_FILE")
-            DOMAIN=$(grep -Po '"Host": "\K[^"]+' "$CONFIG_FILE" || grep -Po '"host": "\K[^"]+' "$CONFIG_FILE" || echo "tjtn.pan.wo.cn")
-            TRANSPORT=$(grep -Po '"type": "\K[^"]+' "$CONFIG_FILE" | head -1)
+            UUID=$(grep -Po '"uuid": "\K[^"]+' "$config_file")
+            PORT=$(grep -Po '"listen_port": \K\d+' "$config_file")
+            DOMAIN=$(grep -Po '"Host": "\K[^"]+' "$config_file" || grep -Po '"host": "\K[^"]+' "$config_file" || echo "tjtn.pan.wo.cn")
+            TRANSPORT=$(grep -Po '"type": "\K[^"]+' "$config_file" | head -1)
         else
-            UUID=$(grep -Po '"id": "\K[^"]+' "$CONFIG_FILE")
-            PORT=$(grep -Po '"port": \K\d+' "$CONFIG_FILE")
-            DOMAIN=$(grep -Po '"Host": "\K[^"]+' "$CONFIG_FILE" || grep -Po '"host": "\K[^"]+' "$CONFIG_FILE" || echo "tjtn.pan.wo.cn")
-            TRANSPORT=$(grep -Po '"network": "\K[^"]+' "$CONFIG_FILE" | head -1)
+            UUID=$(grep -Po '"id": "\K[^"]+' "$config_file")
+            PORT=$(grep -Po '"port": \K\d+' "$config_file" | head -1)
+            DOMAIN=$(grep -Po '"Host": "\K[^"]+' "$config_file" || grep -Po '"host": "\K[^"]+' "$config_file" || echo "tjtn.pan.wo.cn")
+            TRANSPORT=$(grep -Po '"network": "\K[^"]+' "$config_file" | head -1)
         fi
         SERVER_IP=$(curl -s ipv4.icanhazip.com)
 
-        echo -e "\n${GREEN}${TOP_LEFT}${HORIZONTAL}${HORIZONTAL} 当前节点信息 ${HORIZONTAL}${HORIZONTAL}${TOP_RIGHT}${NC}"
+        echo -e "\n${GREEN}${TOP_LEFT}${HORIZONTAL}${HORIZONTAL} 节点信息 ($nodename) ${HORIZONTAL}${HORIZONTAL}${TOP_RIGHT}${NC}"
         echo -e "${GREEN}${VERTICAL} 核心: $CORE${NC}"
         echo -e "${GREEN}${VERTICAL} 协议: vmess${NC}"
         echo -e "${GREEN}${VERTICAL} 地址: $SERVER_IP${NC}"
@@ -390,7 +457,7 @@ show_node_info() {
         VMESS_JSON=$(cat <<EOF
 {
   "v": "2",
-  "ps": "$NODENAME",
+  "ps": "$nodename",
   "add": "$SERVER_IP",
   "port": "$PORT",
   "id": "$UUID",
@@ -409,7 +476,51 @@ EOF
         echo -e "${YELLOW}${VERTICAL} $VMESS_LINK${NC}"
         echo -e "${YELLOW}${BOTTOM_LEFT}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${BOTTOM_RIGHT}${NC}"
     else
-        echo -e "${RED}❌ 未找到配置文件，请先安装节点${NC}"
+        echo -e "${RED}❌ 未找到配置文件: $config_file${NC}"
+    fi
+}
+
+# ----------------- 显示所有节点信息 -----------------
+show_all_nodes() {
+    if [ -d "$CONFIG_DIR" ] && [ -n "$(ls -A $CONFIG_DIR)" ]; then
+        echo -e "${BLUE}${TOP_LEFT}${HORIZONTAL}${HORIZONTAL} 所有节点信息 ${HORIZONTAL}${HORIZONTAL}${TOP_RIGHT}${NC}"
+        for config_file in "$CONFIG_DIR"/*.json; do
+            nodename=$(basename "$config_file" .json)
+            show_node_info "$config_file" "$nodename"
+        done
+        echo -e "${BLUE}${BOTTOM_LEFT}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${BOTTOM_RIGHT}${NC}"
+    else
+        echo -e "${RED}❌ 未找到任何节点配置${NC}"
+    fi
+}
+
+# ----------------- 流量统计 -----------------
+show_traffic_stats() {
+    if [ "$CORE" == "xray-core" ]; then
+        if ! systemctl is-active --quiet $SERVICE_NAME; then
+            echo -e "${RED}❌ 服务未运行，无法获取流量统计${NC}"
+            return
+        fi
+
+        # 使用 xray 的 API 获取流量统计
+        stats=$(curl -s "http://127.0.0.1:$API_PORT/stats" -H "Content-Type: application/json" -d '{"reset": false}')
+        if [ -z "$stats" ]; then
+            echo -e "${RED}❌ 无法连接到 xray API 端口 $API_PORT${NC}"
+            return
+        fi
+
+        echo -e "${BLUE}${TOP_LEFT}${HORIZONTAL}${HORIZONTAL} 流量统计 ${HORIZONTAL}${HORIZONTAL}${TOP_RIGHT}${NC}"
+        uplink=$(echo "$stats" | jq -r '.stat[] | select(.name | contains("user>>>") and contains("uplink")) | .value')
+        downlink=$(echo "$stats" | jq -r '.stat[] | select(.name | contains("user>>>") and contains("downlink")) | .value')
+        if [ -n "$uplink" ] && [ -n "$downlink" ]; then
+            echo -e "${BLUE}${VERTICAL} 上行流量: $((uplink / 1024 / 1024)) MB${NC}"
+            echo -e "${BLUE}${VERTICAL} 下行流量: $((downlink / 1024 / 1024)) MB${NC}"
+        else
+            echo -e "${YELLOW}${VERTICAL} 无流量数据${NC}"
+        fi
+        echo -e "${BLUE}${BOTTOM_LEFT}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${BOTTOM_RIGHT}${NC}"
+    else
+        echo -e "${YELLOW}⚠️ sing-box 暂不支持流量统计${NC}"
     fi
 }
 
@@ -516,6 +627,8 @@ main_menu() {
         echo -e "${BLUE}${VERTICAL} 5) 删除服务和节点         ${VERTICAL}${NC}"
         echo -e "${BLUE}${VERTICAL} 6) 显示版本信息           ${VERTICAL}${NC}"
         echo -e "${BLUE}${VERTICAL} 7) 查看当前节点信息       ${VERTICAL}${NC}"
+        echo -e "${BLUE}${VERTICAL} 8) 查看所有节点信息       ${VERTICAL}${NC}"
+        echo -e "${BLUE}${VERTICAL} 9) 查看流量统计           ${VERTICAL}${NC}"
         echo -e "${BLUE}${VERTICAL} 0) 退出                   ${VERTICAL}${NC}"
         echo -e "${BLUE}${BOTTOM_LEFT}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${BOTTOM_RIGHT}${NC}"
         read -rp "${YELLOW}请输入选项: ${NC}" ACTION
@@ -534,7 +647,9 @@ main_menu() {
             4) restart_service ;;
             5) delete_service ;;
             6) show_version ;;
-            7) show_node_info ;;
+            7) show_node_info "$CONFIG_FILE" "thatdream" ;;
+            8) show_all_nodes ;;
+            9) show_traffic_stats ;;
             0) echo -e "${YELLOW}👋 退出脚本${NC}"; exit 0 ;;
             *) echo -e "${RED}❌ 无效选项${NC}" ;;
         esac
