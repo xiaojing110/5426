@@ -25,7 +25,6 @@ SERVICE_NAME="v2ray"
 EXEC=""
 CORE="xray-core"
 TRANSPORT="ws" # 默认传输协议为 ws
-API_PORT=10085 # 默认 API 端口，用于流量统计
 
 # ----------------- 工具函数 -----------------
 random_uuid() {
@@ -155,10 +154,18 @@ create_config() {
         PORT=$(random_port)
     fi
 
+    # 为 xray-core 生成 API 端口
+    if [ "$CORE" == "xray-core" ]; then
+        API_PORT=$(random_port)
+        while [ "$API_PORT" == "$PORT" ]; do
+            API_PORT=$(random_port)
+        done
+    fi
+
     # 输入别名
     read -rp "请输入节点别名 (回车默认为 Thatdream): " NODENAME
     if [ -z "$NODENAME" ]; then
-        NODENAME="MyNode"
+        NODENAME="Thatdream"
     fi
 
     # 选择传输协议
@@ -420,6 +427,11 @@ EOF
         exit 1
     fi
 
+    # 存储 API 端口映射
+    if [ "$CORE" == "xray-core" ]; then
+        echo "$NODENAME:$API_PORT" >> "$BASE_DIR/api_ports.txt"
+    fi
+
     show_node_info "$CONFIG_FILE" "$NODENAME"
 }
 
@@ -439,6 +451,7 @@ show_node_info() {
             PORT=$(grep -Po '"port": \K\d+' "$config_file" | head -1)
             DOMAIN=$(grep -Po '"Host": "\K[^"]+' "$config_file" || grep -Po '"host": "\K[^"]+' "$config_file" || echo "tjtn.pan.wo.cn")
             TRANSPORT=$(grep -Po '"network": "\K[^"]+' "$config_file" | head -1)
+            API_PORT=$(grep -Po '"port": \K\d+' "$config_file" | tail -1)
         fi
         SERVER_IP=$(curl -s ipv4.icanhazip.com)
 
@@ -447,6 +460,7 @@ show_node_info() {
         echo -e "${GREEN}${VERTICAL} 协议: vmess${NC}"
         echo -e "${GREEN}${VERTICAL} 地址: $SERVER_IP${NC}"
         echo -e "${GREEN}${VERTICAL} 端口: $PORT${NC}"
+        [ "$CORE" == "xray-core" ] && echo -e "${GREEN}${VERTICAL} API 端口: $API_PORT${NC}"
         echo -e "${GREEN}${VERTICAL} UUID: $UUID${NC}"
         echo -e "${GREEN}${VERTICAL} 传输: $TRANSPORT${NC}"
         [ "$TRANSPORT" == "tcp" ] && echo -e "${GREEN}${VERTICAL} 伪装类型: http${NC}"
@@ -502,23 +516,38 @@ show_traffic_stats() {
             return
         fi
 
-        # 使用 xray 的 API 获取流量统计
-        stats=$(curl -s "http://127.0.0.1:$API_PORT/stats" -H "Content-Type: application/json" -d '{"reset": false}')
-        if [ -z "$stats" ]; then
-            echo -e "${RED}❌ 无法连接到 xray API 端口 $API_PORT${NC}"
-            return
-        fi
+        if [ -d "$CONFIG_DIR" ] && [ -n "$(ls -A $CONFIG_DIR)" ]; then
+            echo -e "${BLUE}${TOP_LEFT}${HORIZONTAL}${HORIZONTAL} 流量统计 ${HORIZONTAL}${HORIZONTAL}${TOP_RIGHT}${NC}"
+            for config_file in "$CONFIG_DIR"/*.json; do
+                nodename=$(basename "$config_file" .json)
+                API_PORT=$(grep "$nodename:" "$BASE_DIR/api_ports.txt" | cut -d':' -f2)
+                if [ -z "$API_PORT" ]; then
+                    echo -e "${YELLOW}${VERTICAL} 节点 $nodename: 未找到 API 端口${NC}"
+                    continue
+                fi
 
-        echo -e "${BLUE}${TOP_LEFT}${HORIZONTAL}${HORIZONTAL} 流量统计 ${HORIZONTAL}${HORIZONTAL}${TOP_RIGHT}${NC}"
-        uplink=$(echo "$stats" | jq -r '.stat[] | select(.name | contains("user>>>") and contains("uplink")) | .value')
-        downlink=$(echo "$stats" | jq -r '.stat[] | select(.name | contains("user>>>") and contains("downlink")) | .value')
-        if [ -n "$uplink" ] && [ -n "$downlink" ]; then
-            echo -e "${BLUE}${VERTICAL} 上行流量: $((uplink / 1024 / 1024)) MB${NC}"
-            echo -e "${BLUE}${VERTICAL} 下行流量: $((downlink / 1024 / 1024)) MB${NC}"
+                # 使用 xray 的 API 获取流量统计
+                stats=$(curl -s "http://127.0.0.1:$API_PORT/stats" -H "Content-Type: application/json" -d '{"reset": false}' 2>/dev/null)
+                if [ -z "$stats" ]; then
+                    echo -e "${RED}${VERTICAL} 节点 $nodename: 无法连接到 API 端口 $API_PORT${NC}"
+                    continue
+                fi
+
+                echo -e "${BLUE}${VERTICAL} 节点: $nodename${NC}"
+                uplink=$(echo "$stats" | jq -r '.stat[] | select(.name | contains("user>>>") and contains("uplink")) | .value')
+                downlink=$(echo "$stats" | jq -r '.stat[] | select(.name | contains("user>>>") and contains("downlink")) | .value')
+                if [ -n "$uplink" ] && [ -n "$downlink" ]; then
+                    echo -e "${BLUE}${VERTICAL} 上行流量: $((uplink / 1024 / 1024)) MB${NC}"
+                    echo -e "${BLUE}${VERTICAL} 下行流量: $((downlink / 1024 / 1024)) MB${NC}"
+                else
+                    echo -e "${YELLOW}${VERTICAL} 无流量数据${NC}"
+                fi
+                echo -e "${BLUE}${VERTICAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${VERTICAL}${NC}"
+            done
+            echo -e "${BLUE}${BOTTOM_LEFT}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${BOTTOM_RIGHT}${NC}"
         else
-            echo -e "${YELLOW}${VERTICAL} 无流量数据${NC}"
+            echo -e "${RED}❌ 未找到任何节点配置${NC}"
         fi
-        echo -e "${BLUE}${BOTTOM_LEFT}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${HORIZONTAL}${BOTTOM_RIGHT}${NC}"
     else
         echo -e "${YELLOW}⚠️ sing-box 暂不支持流量统计${NC}"
     fi
@@ -647,7 +676,7 @@ main_menu() {
             4) restart_service ;;
             5) delete_service ;;
             6) show_version ;;
-            7) show_node_info "$CONFIG_FILE" "thatdream" ;;
+            7) show_node_info "$CONFIG_FILE" "Thatdream" ;;
             8) show_all_nodes ;;
             9) show_traffic_stats ;;
             0) echo -e "${YELLOW}👋 退出脚本${NC}"; exit 0 ;;
